@@ -67,54 +67,61 @@ test.describe('Regression: Authentication', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INVENTORY / PRODUCTS
+// WHY: Shared page via beforeAll — see products.spec.js for the full rationale.
+// Short version: 7 beforeEach navigations to /inventory.html trigger CDN
+// rate-limiting from GitHub Actions IPs. One shared navigation avoids this.
 // ─────────────────────────────────────────────────────────────────────────────
+
+let regInvPage;
+let regInvSharedPage;
+
 test.describe('Regression: Product Inventory', () => {
 
-  test.beforeEach(async ({ page }) => {
-    const inventoryPage = new InventoryPage(page);
-    await inventoryPage.navigate();
-    await inventoryPage.assertOnInventoryPage();
+  test.beforeAll(async ({ workerContext }) => {
+    regInvSharedPage = await workerContext.newPage();
+    regInvPage       = new InventoryPage(regInvSharedPage);
+    await regInvPage.navigate();
+    await regInvPage.assertOnInventoryPage();
   });
 
-  test('displays all 6 products', async ({ page }) => {
-    const inventoryPage = new InventoryPage(page);
-    const count = await inventoryPage.getProductCount();
+  test.afterAll(async () => {
+    await regInvSharedPage?.close();
+  });
+
+  test('displays all 6 products', async () => {
+    const count = await regInvPage.getProductCount();
     expect(count).toBe(products.expectedCount);
   });
 
-  test('all expected product names are present', async ({ page }) => {
+  test('all expected product names are present', async () => {
     for (const name of products.items) {
       await expect(
-        page.locator('.inventory_item_name', { hasText: name })
+        regInvSharedPage.locator('.inventory_item_name', { hasText: name })
       ).toBeVisible();
     }
   });
 
-  test('sort A to Z puts Sauce Labs Backpack first', async ({ page }) => {
-    const inventoryPage = new InventoryPage(page);
-    await inventoryPage.sortBy('az');
-    const first = await inventoryPage.getFirstProductName();
+  test('sort A to Z puts Sauce Labs Backpack first', async () => {
+    await regInvPage.sortBy('az');
+    const first = await regInvPage.getFirstProductName();
     expect(first?.trim()).toBe(products.firstAlphabetically);
   });
 
-  test('sort Z to A puts Test.allTheThings() T-Shirt first', async ({ page }) => {
-    const inventoryPage = new InventoryPage(page);
-    await inventoryPage.sortBy('za');
-    const first = await inventoryPage.getFirstProductName();
+  test('sort Z to A puts Test.allTheThings() T-Shirt first', async () => {
+    await regInvPage.sortBy('za');
+    const first = await regInvPage.getFirstProductName();
     expect(first?.trim()).toBe(products.lastAlphabetically);
   });
 
-  test('sort price low to high puts cheapest item first', async ({ page }) => {
-    const inventoryPage = new InventoryPage(page);
-    await inventoryPage.sortBy('lohi');
-    const first = await inventoryPage.getFirstProductName();
+  test('sort price low to high puts cheapest item first', async () => {
+    await regInvPage.sortBy('lohi');
+    const first = await regInvPage.getFirstProductName();
     expect(first?.trim()).toBe(products.cheapest);
   });
 
-  test('sort price high to low puts most expensive item first', async ({ page }) => {
-    const inventoryPage = new InventoryPage(page);
-    await inventoryPage.sortBy('hilo');
-    const first = await inventoryPage.getFirstProductName();
+  test('sort price high to low puts most expensive item first', async () => {
+    await regInvPage.sortBy('hilo');
+    const first = await regInvPage.getFirstProductName();
     expect(first?.trim()).toBe(products.mostExpensive);
   });
 });
