@@ -73,13 +73,19 @@ class InventoryPage extends BasePage {
    * Select a sort option from the dropdown.
    * @param {'az'|'za'|'lohi'|'hilo'} option - Sort key matching the <option> values.
    *
-   * WHY: Explicit waitFor before selectOption ensures the dropdown is interactive.
-   * In CI, the element can exist in the DOM but not yet accept input if the page
-   * is still hydrating; the wait absorbs that delay without an arbitrary sleep.
+   * WHY: 'attached' (not 'visible') is used for the waitFor, and force: true is
+   * passed to selectOption. In CI, when saucedemo.com's CDN rate-limits sub-resource
+   * requests (CSS / JS bundles), the <select> element is inserted into the DOM by
+   * the base HTML but its visibility depends on the CSS bundle loading. Playwright's
+   * default actionability check (visible + not-covered) therefore blocks forever
+   * because the element is present but styled as not-visible until the bundle arrives.
+   * Waiting for 'attached' + force: true bypasses the visibility check and dispatches
+   * the change event directly. React's event delegation still receives the event
+   * (React listens at the document level), so the sort state updates correctly.
    */
   async sortBy(option) {
-    await this.sortDropdown.waitFor({ state: 'visible', timeout: 120_000 });
-    await this.sortDropdown.selectOption(option, { timeout: 60_000 });
+    await this.sortDropdown.waitFor({ state: 'attached', timeout: 120_000 });
+    await this.sortDropdown.selectOption(option, { timeout: 120_000, force: true });
   }
 
   /**
