@@ -56,11 +56,13 @@ module.exports = defineConfig({
     navigationTimeout: 120_000,
 
     /**
-     * WHY: 15 s action timeout for clicks, fills, and assertions.
-     * The default 30 s is unnecessarily long for a simple SPA interaction;
-     * 15 s catches genuine element-not-found errors promptly.
+     * WHY: 60 s action timeout for clicks, fills, selectOption, and assertions.
+     * The sort dropdown on saucedemo.com can take > 15 s to become interactable
+     * in CI when the CDN rate-limits subsequent page-load requests from the same
+     * GitHub Actions IP. 60 s absorbs these delays without masking real bugs —
+     * a genuinely missing element would still fail every attempt.
      */
-    actionTimeout: 15_000,
+    actionTimeout: 60_000,
 
     /** Full trace recorded only on the first retry — keeps artifact sizes small. */
     trace: 'on-first-retry',
@@ -96,8 +98,13 @@ module.exports = defineConfig({
    */
   globalSetup: './support/globalSetup.js',
 
-  /** Per-test timeout (ms). Covers the test body + beforeEach/afterEach hooks. */
-  timeout: 60_000,
+  /**
+   * WHY: 180 s per-test timeout. Each test runs beforeEach (which navigates to
+   * saucedemo.com — up to 120 s on a rate-limited CDN) plus the test body.
+   * 60 s was too tight; a slow navigation plus a slow selectOption could exhaust
+   * the budget before the test had a chance to complete.
+   */
+  timeout: 180_000,
 
   expect: {
     /** Max time for a single expect() assertion to resolve. */

@@ -28,10 +28,26 @@ class InventoryPage extends BasePage {
    * Navigate to the inventory page.
    * storageState has already set session-username in localStorage so React
    * renders inventory without a login redirect.
+   *
+   * WHY: waitUntil 'load' (not 'domcontentloaded') ensures all JS bundles and
+   * stylesheets have finished loading before the test interacts with the page.
+   * 'domcontentloaded' fires before React executes, leaving the sort dropdown
+   * absent from the DOM and causing selectOption timeouts in CI.
+   *
+   * WHY: Both productList and sortDropdown are waited on explicitly with a
+   * 120 s timeout. The CDN may rate-limit subsequent page-load requests from
+   * GitHub Actions IPs, slowing React hydration beyond the default actionTimeout.
+   * Waiting here ensures navigate() only returns when the page is fully usable.
    */
   async navigate() {
-    await this.page.goto('/inventory.html', { waitUntil: 'domcontentloaded' });
-    await this.productList.waitFor({ state: 'visible' });
+    await this.page.goto('/inventory.html', {
+      waitUntil: 'load',
+      timeout: 120_000,
+    });
+    await Promise.all([
+      this.productList.waitFor({ state: 'visible', timeout: 120_000 }),
+      this.sortDropdown.waitFor({ state: 'visible', timeout: 120_000 }),
+    ]);
   }
 
   /**
@@ -61,9 +77,14 @@ class InventoryPage extends BasePage {
   /**
    * Select a sort option from the dropdown.
    * @param {'az'|'za'|'lohi'|'hilo'} option - Sort key matching the <option> values.
+   *
+   * WHY: Explicit waitFor before selectOption ensures the dropdown is interactive.
+   * In CI, the element can exist in the DOM but not yet accept input if the page
+   * is still hydrating; the wait absorbs that delay without an arbitrary sleep.
    */
   async sortBy(option) {
-    await this.sortDropdown.selectOption(option);
+    await this.sortDropdown.waitFor({ state: 'visible', timeout: 120_000 });
+    await this.sortDropdown.selectOption(option, { timeout: 60_000 });
   }
 
   /**
