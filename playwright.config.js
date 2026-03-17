@@ -49,11 +49,13 @@ module.exports = defineConfig({
     baseURL: 'https://www.saucedemo.com',
 
     /**
-     * WHY: 120 s navigation timeout mirrors the Cypress pageLoadTimeout.
-     * saucedemo.com loads in 30–60 s from GitHub Actions; 60 s caused
-     * intermittent failures under runner load. 120 s gives a generous buffer.
+     * WHY: 360 s navigation timeout covers the workerContext warmup goto().
+     * The warmup blocks until the JS bundle fully downloads (waitUntil:'load').
+     * Under CDN rate-limiting that can take 3–5 min. Since fixture setup time
+     * counts against the first test's timeout, navigation and action timeouts
+     * must be at least as large as the warmup budget.
      */
-    navigationTimeout: 120_000,
+    navigationTimeout: 360_000,
 
     /**
      * WHY: 60 s action timeout for clicks, fills, selectOption, and assertions.
@@ -99,12 +101,14 @@ module.exports = defineConfig({
   globalSetup: './support/globalSetup.js',
 
   /**
-   * WHY: 180 s per-test timeout. Each test runs beforeEach (which navigates to
-   * saucedemo.com — up to 120 s on a rate-limited CDN) plus the test body.
-   * 60 s was too tight; a slow navigation plus a slow selectOption could exhaust
-   * the budget before the test had a chance to complete.
+   * WHY: 480 s (8 min) per-test timeout. The workerContext fixture performs a
+   * warmup navigation with waitUntil:'load' + 360 s budget; Playwright counts
+   * fixture setup time against the first test's timeout. 480 s = 360 s warmup
+   * budget + 120 s for the test body itself, giving a comfortable margin.
+   * Subsequent tests in the same worker skip warmup (context already set up)
+   * and complete in seconds, so the large timeout only matters for test #1.
    */
-  timeout: 180_000,
+  timeout: 480_000,
 
   expect: {
     /** Max time for a single expect() assertion to resolve. */

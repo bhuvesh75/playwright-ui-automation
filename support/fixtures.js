@@ -50,6 +50,44 @@ exports.test = base.test.extend({
         storageState: AUTH_STATE,
         viewport: { width: 1280, height: 720 },
       });
+
+      /**
+       * WHY: The worker-scoped context shares its HTTP cache across all tests,
+       * but only after something has populated that cache. saucedemo.com is a
+       * React SPA — the initial HTML is served instantly, but the JS bundle
+       * that hydrates React (including the sort dropdown and cart buttons) can
+       * take 3–5 minutes to download from GitHub Actions IPs due to CDN
+       * rate-limiting. If no warmup is performed, the FIRST navigate() call
+       * returns as soon as domcontentloaded fires (HTML parsed, static product
+       * list visible), but React hasn't hydrated — so the sort dropdown and
+       * all interactive elements added by React are absent from the DOM.
+       *
+       * By loading the root URL here with waitUntil:'load', we block until ALL
+       * resources — including the JS bundle — have finished downloading. The
+       * bundle is then in the browser's HTTP cache. Every subsequent navigate()
+       * in every test gets the bundle from cache in milliseconds, and React
+       * hydrates immediately after domcontentloaded fires.
+       *
+       * The try/catch makes this non-fatal: if the warmup itself times out
+       * (e.g., CDN completely unreachable), tests still run — they may fail,
+       * but the individual retry logic in each test file provides a second
+       * chance rather than aborting the whole suite up front.
+       */
+      const warmupPage = await context.newPage();
+      try {
+        // 360 s covers the observed worst-case CDN delivery time (~3–5 min).
+        // WHY root URL: saucedemo.com serves the same HTML shell for all routes.
+        // The JS bundle referenced in that shell is what we need cached.
+        // With storageState set, React will client-side-redirect to /inventory.html
+        // after hydration, but the 'load' event fires once the bundle finishes —
+        // which is exactly the signal we need.
+        await warmupPage.goto('/', { waitUntil: 'load', timeout: 360_000 });
+      } catch {
+        // Non-fatal: bundle may still be partially cached; tests have retries.
+      } finally {
+        await warmupPage.close();
+      }
+
       await use(context);
       await context.close();
     },
