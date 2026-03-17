@@ -26,18 +26,30 @@ class InventoryPage extends BasePage {
 
   /**
    * Navigate to the inventory page.
-   * storageState has already set session-username in localStorage so React
-   * renders inventory without a login redirect.
    *
-   * WHY: waitUntil 'domcontentloaded' is used intentionally (not 'load').
+   * WHY addInitScript: login tests register `page.addInitScript(() =>
+   * localStorage.clear())` on their pages. In Playwright, localStorage is
+   * shared across all pages in the same browser context (same as real-browser
+   * tab behavior). When those pages navigate, the init script clears
+   * session-username from the context-wide storage. Subsequent pages that
+   * navigate to /inventory.html then get the React login-error screen instead
+   * of the inventory. Re-injecting session-username here — as an init script
+   * so it runs BEFORE React checks auth — ensures the inventory always renders
+   * regardless of what prior tests did to shared storage.
+   *
+   * WHY waitUntil 'domcontentloaded' (not 'load'):
    * 'load' blocks until ALL sub-resources (images, CSS, JS bundles) finish.
    * When saucedemo.com's CDN rate-limits from GitHub Actions IPs, sub-resources
    * time out while the HTML itself arrives fine — 'load' would hang for 120 s
    * while 'domcontentloaded' lets us proceed once the DOM is parsed.
-   * React hydrates from the already-parsed DOM + localStorage auth state and
-   * renders the product list quickly, well within the 120 s waitFor below.
+   * The JS bundle is intercepted and served from the worker-context jsCache
+   * (see fixtures.js), so React hydrates quickly after domcontentloaded.
    */
   async navigate() {
+    // Restore auth before React evaluates it.  See WHY comment above.
+    await this.page.addInitScript(() => {
+      localStorage.setItem('session-username', 'standard_user');
+    });
     await this.page.goto('/inventory.html', {
       waitUntil: 'domcontentloaded',
       timeout: 120_000,
@@ -84,8 +96,11 @@ class InventoryPage extends BasePage {
    * (React listens at the document level), so the sort state updates correctly.
    */
   async sortBy(option) {
-    await this.sortDropdown.waitFor({ state: 'attached', timeout: 120_000 });
-    await this.sortDropdown.selectOption(option, { timeout: 120_000, force: true });
+    // WHY 180 s: in CI, the sort dropdown (a React-only element) appears at
+    // ~122 s after navigate() — just past the old 120 s limit. 180 s provides
+    // a 60 s buffer above the observed worst case without being excessively long.
+    await this.sortDropdown.waitFor({ state: 'attached', timeout: 180_000 });
+    await this.sortDropdown.selectOption(option, { timeout: 60_000, force: true });
   }
 
   /**
