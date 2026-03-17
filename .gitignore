@@ -1,0 +1,19 @@
+# Node
+node_modules/
+
+# Playwright output
+playwright-report/
+test-results/
+
+# Auth state — contains session tokens; must never be committed
+playwright/.auth/
+
+# Environment overrides
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

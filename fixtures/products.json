@@ -1,0 +1,15 @@
+{
+  "expectedCount": 6,
+  "firstAlphabetically": "Sauce Labs Backpack",
+  "lastAlphabetically": "Test.allTheThings() T-Shirt (Red)",
+  "cheapest": "Sauce Labs Onesie",
+  "mostExpensive": "Sauce Labs Fleece Jacket",
+  "items": [
+    "Sauce Labs Backpack",
+    "Sauce Labs Bike Light",
+    "Sauce Labs Bolt T-Shirt",
+    "Sauce Labs Fleece Jacket",
+    "Sauce Labs Onesie",
+    "Test.allTheThings() T-Shirt (Red)"
+  ]
+}

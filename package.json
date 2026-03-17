@@ -1,0 +1,19 @@
+{
+  "name": "playwright-ui-automation",
+  "version": "1.0.0",
+  "description": "Production-grade Playwright E2E UI automation framework for Sauce Demo using Page Object Model",
+  "author": "Bhuvesh Yadav <https://github.com/bhuvesh75>",
+  "license": "MIT",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:smoke": "npx playwright test tests/smoke/",
+    "test:functional": "npx playwright test tests/functional/",
+    "test:regression": "npx playwright test tests/regression/",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui",
+    "report": "npx playwright show-report playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
