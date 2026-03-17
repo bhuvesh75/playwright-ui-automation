@@ -7,7 +7,7 @@
  * @github      https://github.com/bhuvesh75
  */
 
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../../support/fixtures');
 const InventoryPage = require('../../pages/InventoryPage');
 const CartPage      = require('../../pages/CartPage');
 
