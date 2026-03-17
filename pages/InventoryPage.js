@@ -29,25 +29,20 @@ class InventoryPage extends BasePage {
    * storageState has already set session-username in localStorage so React
    * renders inventory without a login redirect.
    *
-   * WHY: waitUntil 'load' (not 'domcontentloaded') ensures all JS bundles and
-   * stylesheets have finished loading before the test interacts with the page.
-   * 'domcontentloaded' fires before React executes, leaving the sort dropdown
-   * absent from the DOM and causing selectOption timeouts in CI.
-   *
-   * WHY: Both productList and sortDropdown are waited on explicitly with a
-   * 120 s timeout. The CDN may rate-limit subsequent page-load requests from
-   * GitHub Actions IPs, slowing React hydration beyond the default actionTimeout.
-   * Waiting here ensures navigate() only returns when the page is fully usable.
+   * WHY: waitUntil 'domcontentloaded' is used intentionally (not 'load').
+   * 'load' blocks until ALL sub-resources (images, CSS, JS bundles) finish.
+   * When saucedemo.com's CDN rate-limits from GitHub Actions IPs, sub-resources
+   * time out while the HTML itself arrives fine — 'load' would hang for 120 s
+   * while 'domcontentloaded' lets us proceed once the DOM is parsed.
+   * React hydrates from the already-parsed DOM + localStorage auth state and
+   * renders the product list quickly, well within the 120 s waitFor below.
    */
   async navigate() {
     await this.page.goto('/inventory.html', {
-      waitUntil: 'load',
+      waitUntil: 'domcontentloaded',
       timeout: 120_000,
     });
-    await Promise.all([
-      this.productList.waitFor({ state: 'visible', timeout: 120_000 }),
-      this.sortDropdown.waitFor({ state: 'visible', timeout: 120_000 }),
-    ]);
+    await this.productList.waitFor({ state: 'visible', timeout: 120_000 });
   }
 
   /**
