@@ -11,12 +11,22 @@ const InventoryPage = require('../../pages/InventoryPage');
 const products      = require('../../fixtures/products.json');
 
 /**
- * WHY: A single page is shared across all tests in this file via beforeAll
- * (not beforeEach). Every test that calls page.goto('/inventory.html') is a
- * cold CDN request from GitHub Actions, which triggers saucedemo.com's CDN
- * rate-limiter after 2–3 rapid requests. With 6 tests each navigating in
- * beforeEach, all sort tests timed out because the CDN blocked the HTML
- * response for > 120 s on every subsequent attempt.
+ * WHY: A single page is shared across ALL tests and ALL retries via
+ * module-level state managed in beforeAll.
+ *
+ * Problem: Every page.goto('/inventory.html') is a cold CDN request from
+ * GitHub Actions, which hits saucedemo.com's CDN rate-limiter. With the
+ * 120 s waitFor timeout, the sort dropdown loads ~1–2 s AFTER the timeout
+ * expires (CDN delivers the JS bundle just too late). Playwright then retries
+ * the test, re-runs beforeAll, and navigates AGAIN — hitting the CDN a second
+ * and third time. Each retry encounters the same rate-limit and times out at
+ * exactly 120 s, just before the dropdown loads.
+ *
+ * Fix: Keep sharedPage alive across retries. On retry, beforeAll checks the
+ * current URL; if the page is already at /inventory.html (successful first
+ * navigation), it skips re-navigation. The already-rendered page has the sort
+ * dropdown in the DOM from the first load, so the retry's sortBy() call
+ * finds the element immediately and succeeds.
  *
  * All products tests are safe to share one page because:
  * - Product count test:  reads the DOM, does not mutate it.
@@ -24,27 +34,34 @@ const products      = require('../../fixtures/products.json');
  *                        prior sort state from the previous test does not affect
  *                        the result.
  * - Product names test:  reads product names, does not mutate the page.
- *
- * workerContext (worker-scoped fixture) provides the shared browser context
- * whose HTTP cache is warmed by earlier tests in the worker. Using a page from
- * this context means the second and subsequent navigations in the worker hit
- * the cache rather than the CDN.
  */
 
-let sharedPage;
-let inventoryPage;
+let sharedPage = null;
+let inventoryPage = null;
 
 test.describe('Functional: Product Inventory', () => {
 
   test.beforeAll(async ({ workerContext }) => {
-    sharedPage    = await workerContext.newPage();
-    inventoryPage = new InventoryPage(sharedPage);
-    await inventoryPage.navigate();
-    await inventoryPage.assertOnInventoryPage();
+    // Create the page only once — reuse on retries so CDN is not hit again.
+    if (!sharedPage || sharedPage.isClosed()) {
+      sharedPage    = await workerContext.newPage();
+      inventoryPage = new InventoryPage(sharedPage);
+    }
+    // Navigate only if the page is not already at /inventory.html.
+    // WHY: On test retry, beforeAll re-runs. If the FIRST attempt loaded the
+    // page successfully (productList visible) but the sort dropdown timed out
+    // at 120 s, the page is already loaded — we just need to use it again.
+    // Re-navigating would hit the CDN again and replay the same timeout.
+    if (!sharedPage.url().includes('/inventory.html')) {
+      await inventoryPage.navigate();
+      await inventoryPage.assertOnInventoryPage();
+    }
   });
 
   test.afterAll(async () => {
     await sharedPage?.close();
+    sharedPage    = null;
+    inventoryPage = null;
   });
 
   /**

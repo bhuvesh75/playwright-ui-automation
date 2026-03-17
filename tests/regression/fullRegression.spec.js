@@ -72,16 +72,26 @@ test.describe('Regression: Authentication', () => {
 // rate-limiting from GitHub Actions IPs. One shared navigation avoids this.
 // ─────────────────────────────────────────────────────────────────────────────
 
-let regInvPage;
-let regInvSharedPage;
+let regInvPage     = null;
+let regInvSharedPage = null;
 
 test.describe('Regression: Product Inventory', () => {
 
   test.beforeAll(async ({ workerContext }) => {
-    regInvSharedPage = await workerContext.newPage();
-    regInvPage       = new InventoryPage(regInvSharedPage);
-    await regInvPage.navigate();
-    await regInvPage.assertOnInventoryPage();
+    // Create the page only once — reuse on retries so CDN is not hit again.
+    // WHY: Same retry-safety pattern as products.spec.js — see that file for
+    // the full rationale. Short version: beforeAll re-runs on every retry;
+    // re-navigating /inventory.html from GitHub Actions IPs triggers CDN
+    // rate-limiting and a 120 s timeout. If the page is already at
+    // /inventory.html from a prior attempt, skip the navigate call entirely.
+    if (!regInvSharedPage || regInvSharedPage.isClosed()) {
+      regInvSharedPage = await workerContext.newPage();
+      regInvPage       = new InventoryPage(regInvSharedPage);
+    }
+    if (!regInvSharedPage.url().includes('/inventory.html')) {
+      await regInvPage.navigate();
+      await regInvPage.assertOnInventoryPage();
+    }
   });
 
   test.afterAll(async () => {
