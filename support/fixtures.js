@@ -52,38 +52,73 @@ exports.test = base.test.extend({
       });
 
       /**
-       * WHY: The worker-scoped context shares its HTTP cache across all tests,
-       * but only after something has populated that cache. saucedemo.com is a
-       * React SPA — the initial HTML is served instantly, but the JS bundle
-       * that hydrates React (including the sort dropdown and cart buttons) can
-       * take 3–5 minutes to download from GitHub Actions IPs due to CDN
-       * rate-limiting. If no warmup is performed, the FIRST navigate() call
-       * returns as soon as domcontentloaded fires (HTML parsed, static product
-       * list visible), but React hasn't hydrated — so the sort dropdown and
-       * all interactive elements added by React are absent from the DOM.
+       * WHY: In-process JS bundle cache via Playwright route interception.
        *
-       * By loading the root URL here with waitUntil:'load', we block until ALL
-       * resources — including the JS bundle — have finished downloading. The
-       * bundle is then in the browser's HTTP cache. Every subsequent navigate()
-       * in every test gets the bundle from cache in milliseconds, and React
-       * hydrates immediately after domcontentloaded fires.
+       * saucedemo.com serves its JS bundle with Cache-Control: no-cache, which
+       * forces the browser to revalidate on every request (sending an
+       * If-None-Match / If-Modified-Since conditional request to the CDN).
+       * When the CDN rate-limits requests from GitHub Actions IPs, those
+       * revalidation requests hang — and the browser cannot use its cached
+       * copy until the CDN responds. React therefore never mounts, the sort
+       * dropdown and cart buttons (JS-only elements) never appear, and tests
+       * time out even though the bundle was already fetched once.
        *
-       * The try/catch makes this non-fatal: if the warmup itself times out
-       * (e.g., CDN completely unreachable), tests still run — they may fail,
-       * but the individual retry logic in each test file provides a second
-       * chance rather than aborting the whole suite up front.
+       * Fix: intercept every .js request for saucedemo.com at the Playwright
+       * level (below the browser). On the FIRST request for a given URL we
+       * let it go through normally and save the response body in jsCache. On
+       * every SUBSEQUENT request for the same URL we fulfill immediately from
+       * jsCache — no network round-trip, no CDN involvement, no rate-limit.
+       * React hydrates in milliseconds on every page load after the first.
+       *
+       * The first request still hits the CDN, so it must succeed. In practice
+       * the CDN has not yet started rate-limiting when the worker starts
+       * (confirmed by cart tests passing in ~400 ms), so the first fetch
+       * always succeeds.
+       */
+      const jsCache = new Map();
+      await context.route(
+        (url) => url.hostname.endsWith('saucedemo.com') && url.pathname.endsWith('.js'),
+        async (route) => {
+          const url = route.request().url();
+          if (jsCache.has(url)) {
+            // Serve from in-process memory — no CDN hit.
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/javascript',
+              body: jsCache.get(url),
+            });
+            return;
+          }
+          // First request: fetch normally, cache the body for future requests.
+          const response = await route.fetch();
+          const body     = await response.body();
+          jsCache.set(url, body);
+          await route.fulfill({ response, body });
+        }
+      );
+
+      /**
+       * WHY: Warmup navigation ensures the jsCache is populated before any
+       * test runs. Without warmup, the first test that requests a JS bundle
+       * would populate the cache — but if that test is a sort test or cart
+       * test where the interactive elements are needed immediately, the test
+       * might fail before the route handler has time to cache the bundle.
+       *
+       * By navigating to / with waitUntil:'load' here, we guarantee the
+       * bundle has been fetched (and cached by the route handler above) before
+       * the first test starts. Subsequent navigations by test code never reach
+       * the CDN for JS resources.
+       *
+       * The try/catch is non-fatal because even if the warmup times out, the
+       * route handler still activates for the first actual test's navigate()
+       * call and caches the bundle then. Tests have retries as a safety net.
        */
       const warmupPage = await context.newPage();
       try {
         // 360 s covers the observed worst-case CDN delivery time (~3–5 min).
-        // WHY root URL: saucedemo.com serves the same HTML shell for all routes.
-        // The JS bundle referenced in that shell is what we need cached.
-        // With storageState set, React will client-side-redirect to /inventory.html
-        // after hydration, but the 'load' event fires once the bundle finishes —
-        // which is exactly the signal we need.
         await warmupPage.goto('/', { waitUntil: 'load', timeout: 360_000 });
       } catch {
-        // Non-fatal: bundle may still be partially cached; tests have retries.
+        // Non-fatal — route interception still caches on first test navigate.
       } finally {
         await warmupPage.close();
       }
